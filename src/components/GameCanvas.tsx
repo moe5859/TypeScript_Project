@@ -5,40 +5,38 @@ import React, {
   forwardRef,
   useState,
 } from "react";
+import { CACTUS_SPAWN_MAX, CACTUS_SPAWN_MIN, GRAVITY, GROUND_Y, H, JUMP_VELOCITY, SPEED_INC, SPEED_START, W } from "../game/constants";
+import { Rect } from "../game/types";
+import { drawDino } from "../game/dino";
 
 export interface GameHandle {
   jump: () => void;
   reset: () => void;
+  setDifficulty: (level: "easy" | "hard") => void;
+  openPause: () => void;
+  closePause: () => void;
 }
 
-type Rect = { x: number; y: number; w: number; h: number };
-
-const W = 900;
-const H = 220;
-const GROUND_Y = H - 30;
-
-const GRAVITY = 0.7;
-const JUMP_VELOCITY = -12.5;
-const SPEED_START = 6;
-const SPEED_INC = 0.00095;
-
-const CACTUS_SPAWN_MIN = 40; // ticks
-const CACTUS_SPAWN_MAX = 90;
 
 const GameCanvas = forwardRef<GameHandle>((_, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // UI state only
   const [score, setScore] = useState(0);
   const [hi, setHi] = useState(() => Number(localStorage.getItem("hi") || 0));
   const [gameOver, setGameOver] = useState(false);
 
-  // mutable game refs (keine Re-renders)
   const playing = useRef(false);
   const speed = useRef(SPEED_START);
   const tick = useRef(0);
   const raf = useRef<number | null>(null);
   const spawnCooldown = useRef(0);
+
+  const difficulty = useRef<"easy" | "hard">("hard");
+  const difficultyFactor = useRef(1.0);
+
+  const paused = useRef(false);
+  const pauseDiffAtStart = useRef<"easy" | "hard">("hard");
+  const diffChangedDuringPause = useRef(false);
 
   const dino = useRef({
     x: 60,
@@ -47,7 +45,7 @@ const GameCanvas = forwardRef<GameHandle>((_, ref) => {
     h: 44,
     vy: 0,
     onGround: true,
-    legLeft: true, // Laufanimation
+    legLeft: true,
   });
 
   const cacti = useRef<Rect[]>([]);
@@ -68,10 +66,37 @@ const GameCanvas = forwardRef<GameHandle>((_, ref) => {
     }))
   );
 
-  // public api
-  useImperativeHandle(ref, () => ({
+    useImperativeHandle(ref, () => ({
     jump: () => tryJump(),
     reset: () => hardReset(),
+    setDifficulty: (level: "easy" | "hard") => {
+      if (!paused.current) return;
+
+      if (difficulty.current !== level) {
+        difficulty.current = level;
+        difficultyFactor.current = level === "easy" ? 0.7 : 1.2;
+        diffChangedDuringPause.current = true;
+      }
+    },
+    openPause: () => {
+      if (gameOver || paused.current) return;
+      paused.current = true;
+      pauseDiffAtStart.current = difficulty.current;
+      diffChangedDuringPause.current = false;
+      playing.current = false; 
+    },
+    closePause: () => {
+      if (!paused.current) return;
+
+      paused.current = false;
+
+      
+      if (diffChangedDuringPause.current) {
+        softReset();
+      }
+
+      playing.current = true;
+    },
   }));
 
   function tryJump() {
@@ -83,7 +108,6 @@ const GameCanvas = forwardRef<GameHandle>((_, ref) => {
   }
 
   function softReset() {
-    // für Restart aus GameOver
     cacti.current = [];
     speed.current = SPEED_START;
     tick.current = 0;
@@ -94,6 +118,9 @@ const GameCanvas = forwardRef<GameHandle>((_, ref) => {
     dino.current.onGround = true;
     setScore(0);
     setGameOver(false);
+
+    paused.current = false;
+    diffChangedDuringPause.current = false;
   }
 
   function hardReset() {
@@ -109,60 +136,30 @@ const GameCanvas = forwardRef<GameHandle>((_, ref) => {
       a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 
     const spawnCactus = () => {
-      // zufällige 1–3 kleine Kakteen
       const w = 10 + Math.floor(Math.random() * 14);
       const h = 20 + Math.floor(Math.random() * 34);
       cacti.current.push({ x: W + 10, y: GROUND_Y - h, w, h });
     };
 
-    const drawDino = () => {
-      const d = dino.current;
 
-      // Hauptkörper
-      ctx.fillStyle = "#555";
-      // Hitbox etwas kleiner als Sprite → „verzeihendere“ Kollision
-      const pad = 4;
-      const visX = d.x;
-      const visY = d.y;
-      const visW = d.w;
-      const visH = d.h;
-
-      ctx.fillStyle = "#2b2b2b";
-      ctx.fillRect(visX, visY, visW, visH); // Körper
-      ctx.fillStyle = "#111";
-      ctx.fillRect(visX + visW - 10, visY + 8, 6, 6); // Auge
-
-      // Beine (Laufanimation)
-      if (d.onGround && playing.current) {
-        if (tick.current % 14 === 0) d.legLeft = !d.legLeft;
-        const off = d.legLeft ? 8 : visW - 18;
-        ctx.fillStyle = "#2b2b2b";
-        ctx.fillRect(visX + off, visY + visH, 10, 10);
-      } else if (d.vy < 0) {
-        // Sprung: kleines Schwänzchen
-        ctx.fillStyle = "#2b2b2b";
-        ctx.fillRect(visX + 6, visY + visH - 2, 8, 6);
-      }
-    };
 
     const draw = () => {
-      // Hintergrund
       ctx.clearRect(0, 0, W, H);
       ctx.fillStyle = "#f7f7f7";
       ctx.fillRect(0, 0, W, H);
 
-      // Wolken
+      const logicalSpeed = speed.current * difficultyFactor.current;
+
       ctx.fillStyle = "#e5e5e5";
       clouds.current.forEach((cl) => {
         ctx.fillRect(cl.x, cl.y, cl.w, cl.h);
-        cl.x -= speed.current * 0.25;
+        cl.x -= logicalSpeed  * 0.25;
         if (cl.x + cl.w < 0) {
           cl.x = W + Math.random() * 100;
           cl.y = 20 + Math.random() * 60;
         }
       });
 
-      // Bodenlinie
       ctx.strokeStyle = "#8d8d8d";
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -170,27 +167,44 @@ const GameCanvas = forwardRef<GameHandle>((_, ref) => {
       ctx.lineTo(W, GROUND_Y);
       ctx.stroke();
 
-      // Bodenmarken
       ctx.fillStyle = "#d0d0d0";
       marks.current.forEach((m) => {
         ctx.fillRect(m.x, m.y, m.w, m.h);
-        m.x -= speed.current * 0.6;
+        m.x -= logicalSpeed  * 0.6;
         if (m.x + m.w < 0) m.x = W + Math.random() * 40;
       });
 
-      // Dino & Cacti
-      drawDino();
+      drawDino(ctx, dino.current, playing.current, tick.current);
       ctx.fillStyle = "#6e6e6e";
       cacti.current.forEach((o) => ctx.fillRect(o.x, o.y, o.w, o.h));
 
-      // HUD
       ctx.fillStyle = "#666";
       ctx.font = "bold 16px ui-monospace, monospace";
       const s = String(score).padStart(5, "0");
       const h = String(hi).padStart(5, "0");
       ctx.fillText(`HI ${h}  ${s}`, W - 170, 26);
 
-      // Game Over Overlay
+      if (paused.current) {
+        ctx.fillStyle = "rgba(0,0,0,0.4)";
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.fillStyle = "#f5f5f5";
+        ctx.font = "24px ui-monospace, monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("PAUSED", W / 2, 80);
+
+        ctx.font = "14px ui-sans-serif, system-ui";
+        ctx.fillText(
+          `Difficulty: ${difficulty.current.toUpperCase()}`,
+          W / 2,
+          110
+        );
+        ctx.fillText("Left / Right hand: change difficulty", W / 2, 140);
+        ctx.fillText("Hand down: resume game", W / 2, 160);
+
+        ctx.textAlign = "start";
+      }
+
       if (gameOver) {
         ctx.fillStyle = "rgba(0,0,0,.05)";
         ctx.fillRect(0, 0, W, H);
@@ -214,7 +228,8 @@ const GameCanvas = forwardRef<GameHandle>((_, ref) => {
       tick.current++;
       speed.current += SPEED_INC;
 
-      // Dino Physik
+      const currentSpeed = speed.current * difficultyFactor.current;
+
       const d = dino.current;
       d.vy += GRAVITY;
       d.y += d.vy;
@@ -226,11 +241,9 @@ const GameCanvas = forwardRef<GameHandle>((_, ref) => {
         d.onGround = false;
       }
 
-      // Cacti bewegen/aufräumen
-      cacti.current.forEach((o) => (o.x -= speed.current));
+      cacti.current.forEach((o) => (o.x -= currentSpeed));
       cacti.current = cacti.current.filter((o) => o.x + o.w > 0);
 
-      // Spawnen
       if (spawnCooldown.current <= 0) {
         spawnCactus();
         spawnCooldown.current =
@@ -240,7 +253,6 @@ const GameCanvas = forwardRef<GameHandle>((_, ref) => {
         spawnCooldown.current--;
       }
 
-      // Kollision (mit „kleinerer“ Hitbox für Dino)
       const hitbox: Rect = {
         x: d.x + 4,
         y: d.y + 4,
@@ -260,18 +272,23 @@ const GameCanvas = forwardRef<GameHandle>((_, ref) => {
         }
       }
 
-      // Score
-      setScore((s) => s + Math.floor(speed.current / 12));
+      setScore((s) => s + 1);
 
       draw();
     };
 
-    // Controls
+    
     const onKey = (e: KeyboardEvent) => {
       if (e.code === "Space" || e.code === "ArrowUp") tryJump();
+
       if (e.code === "Enter" && !playing.current) {
-        softReset();
-        playing.current = true;
+        if (paused.current) {
+          paused.current = false;
+          playing.current = true;
+        } else {
+          softReset();
+          playing.current = true;
+        }
       }
     };
     const onClick = () => {
@@ -286,7 +303,6 @@ const GameCanvas = forwardRef<GameHandle>((_, ref) => {
     window.addEventListener("keydown", onKey);
     canvasRef.current?.addEventListener("pointerdown", onClick);
 
-    // initial draw + loop
     draw();
     raf.current = requestAnimationFrame(loop);
 
