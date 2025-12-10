@@ -5,17 +5,8 @@ import "@mediapipe/hands";
 import { GestureArea } from "../gesture/types";
 
 interface HandControllerProps {
-  /**
-   * Gesture areas defined in normalized video space.
-   * Depending on the current mode, different areas can be active.
-   */
   areas: GestureArea[];
-  /**
-   * Called when a given area is covered by the hand (index finger tip).
-   * Includes a per-area cooldown to avoid repeated triggers.
-   */
   onAreaCovered: (areaId: string) => void;
-  /** Cooldown in ms per area between triggers. Default: 600ms. */
   cooldownMs?: number;
   onFist?: () => void;
 }
@@ -102,7 +93,7 @@ const HandController: React.FC<HandControllerProps> = ({
               });
 
               const avgDist = distances.reduce((a, b) => a + b, 0) / distances.length;
-              const avgNorm = avgDist / video.videoWidth; 
+              const avgNorm = avgDist / video.videoWidth;
 
               const now = nowMs();
               if (avgNorm < 0.13 && now - lastFistTime >= FIST_COOLDOWN) {
@@ -154,7 +145,36 @@ const HandController: React.FC<HandControllerProps> = ({
     };
   }, [areas, onAreaCovered, cooldownMs, onFist]);
 
-  return <video ref={videoRef} muted playsInline style={{ display: "none" }} />;
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        top: 16,
+        left: 16,
+        width: 400,
+        height: 200,
+        border: "2px solid #fff",
+        borderRadius: 8,
+        overflow: "hidden",
+        background: "#000",
+        zIndex: 9999,
+      }}
+    >
+      <video
+        ref={videoRef}
+        muted
+        playsInline
+        autoPlay
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          transform: "scaleX(-1)"
+        }}
+      />
+    </div>
+  );
 };
 
 export default HandController;

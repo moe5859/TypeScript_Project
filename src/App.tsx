@@ -105,13 +105,13 @@ function App() {
       </div>
 
       <p className="hint">
-        Gestures:
-        <br />
-        • Top middle ⇒ jump<br />
-        • Top left ⇒ open pause menu<br />
-        • In pause: left/right ⇒ change difficulty, bottom ⇒ resume
-        <br />
-        Space/Click key still works as fallback for testing.
+          Gestures:
+        <br /> <br />
+          • Top middle ⇒ jump<br />
+          • Top left ⇒ open pause menu<br />
+          • In pause: left/right ⇒ change difficulty, bottom ⇒ resume
+        <br /> <br />
+          Space/Click key still works as fallback for testing.
       </p>
     </div>
   );
